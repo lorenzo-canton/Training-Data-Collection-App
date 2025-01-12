@@ -3,11 +3,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Save, Plus, Edit2, Check, Star, StarOff, Wand2, Trash2 } from "lucide-react";
 
-// Simulazione della chiamata API - da sostituire con l'implementazione reale
-const generateResponse = async (instruction, model = 'default') => {
-  // Simula una risposta dopo 1 secondo
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  return `Risposta generata per: "${instruction}" usando il modello: ${model}`;
+// Implementazione della chiamata API a Ollama
+const generateResponse = async (instruction, model = 'llama3.2', temperature = 0.7, seed = null) => {
+  try {
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model,
+        prompt: instruction,
+        stream: false,
+        options: {
+          temperature: temperature,
+          seed: seed
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Errore API: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.response;
+  } catch (error) {
+    console.error('Errore nella chiamata API:', error);
+    throw new Error('Errore nella generazione della risposta');
+  }
 };
 
 const TrainingApp = () => {
@@ -17,12 +41,12 @@ const TrainingApp = () => {
     { content: '', isEditing: false, rating: 0, model: '' }
   ]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [temperature, setTemperature] = useState(0.7);
+  const [seed, setSeed] = useState('');
 
-  // Modelli disponibili - da configurare secondo necessità
+  // Modelli Ollama disponibili
   const availableModels = [
-    { id: 'model1', name: 'Modello Base' },
-    { id: 'model2', name: 'Modello Creativo' },
-    { id: 'model3', name: 'Modello Preciso' }
+    { id: 'mistral-small:latest', name: 'Mistral small' }
   ];
 
   const addVariant = () => {
@@ -43,7 +67,12 @@ const TrainingApp = () => {
       // Genera una risposta per ogni modello disponibile
       const newResponses = await Promise.all(
         availableModels.map(async model => {
-          const response = await generateResponse(currentInstruction, model.id);
+          const response = await generateResponse(
+            currentInstruction, 
+            model.id,
+            temperature,
+            seed ? parseInt(seed) : null
+          );
           return {
             content: response,
             isEditing: false,
@@ -138,6 +167,31 @@ const TrainingApp = () => {
                 onChange={(e) => setCurrentInstruction(e.target.value)}
                 placeholder="Inserisci la tua istruzione o domanda qui..."
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Temperatura (0-2):</label>
+                <input
+                  type="number"
+                  className="w-full p-2 border rounded-md"
+                  value={temperature}
+                  onChange={(e) => setTemperature(Math.max(0, Math.min(2, parseFloat(e.target.value))))}
+                  min="0"
+                  max="2"
+                  step="0.1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Seed (opzionale):</label>
+                <input
+                  type="number"
+                  className="w-full p-2 border rounded-md"
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                  placeholder="Lascia vuoto per random"
+                />
+              </div>
             </div>
 
             <div className="flex justify-between items-center">
