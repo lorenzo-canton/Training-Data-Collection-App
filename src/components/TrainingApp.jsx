@@ -3,17 +3,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Save, Plus, Edit2, Check, Star, StarOff, Wand2, Trash2 } from "lucide-react";
 
-// Implementazione della chiamata API a Ollama
-const generateResponse = async (instruction, model = 'llama3.2', temperature = 0.7, seed = null) => {
+// Funzione per generare un numero casuale in un range
+const getRandomNumber = (min, max) => {
+  return Math.random() * (max - min) + min;
+};
+
+// Funzione per generare un seed casuale
+const getRandomSeed = () => {
+  return Math.floor(Math.random() * 1000000);
+};
+
+const generateResponse = async (instruction, systemPrompt, temperature, seed) => {
   try {
-    const response = await fetch('http://localhost:11434/api/generate', {
+    const response = await fetch('http://localhost:11434/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: model,
-        prompt: instruction,
+        model: 'mistral-small:latest',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: instruction
+          }
+        ],
         stream: false,
         options: {
           temperature: temperature,
@@ -27,7 +45,7 @@ const generateResponse = async (instruction, model = 'llama3.2', temperature = 0
     }
 
     const data = await response.json();
-    return data.response;
+    return data.message.content;
   } catch (error) {
     console.error('Errore nella chiamata API:', error);
     throw new Error('Errore nella generazione della risposta');
@@ -37,57 +55,57 @@ const generateResponse = async (instruction, model = 'llama3.2', temperature = 0
 const TrainingApp = () => {
   const [conversations, setConversations] = useState([]);
   const [currentInstruction, setCurrentInstruction] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('Sei un assistente AI amichevole e disponibile.');
   const [variants, setVariants] = useState([
-    { content: '', isEditing: false, rating: 0, model: '' }
+    { content: '', isEditing: false, rating: 0, parameters: {} }
   ]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [temperature, setTemperature] = useState(0.7);
-  const [seed, setSeed] = useState('');
 
-  // Modelli Ollama disponibili
-  const availableModels = [
-    { id: 'mistral-small:latest', name: 'Mistral small' }
-  ];
+  const generateVariants = async (numVariants = 3) => {
+    if (!currentInstruction.trim()) return;
+    
+    setIsGenerating(true);
+    try {
+      const newResponses = await Promise.all(
+        Array(numVariants).fill(null).map(async () => {
+          // Genera parametri casuali per ogni variante
+          const temperature = getRandomNumber(0.1, 2);
+          const seed = getRandomSeed();
+          
+          const response = await generateResponse(
+            currentInstruction,
+            systemPrompt,
+            temperature,
+            seed
+          );
+
+          return {
+            content: response,
+            isEditing: false,
+            rating: 0,
+            parameters: {
+              temperature,
+              seed
+            }
+          };
+        })
+      );
+      
+      setVariants(newResponses);
+    } catch (error) {
+      console.error('Errore nella generazione:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const addVariant = () => {
-    setVariants([...variants, { content: '', isEditing: false, rating: 0, model: '' }]);
+    setVariants([...variants, { content: '', isEditing: false, rating: 0, parameters: {} }]);
   };
 
   const deleteVariant = (indexToDelete) => {
     if (variants.length > 1) {
       setVariants(variants.filter((_, index) => index !== indexToDelete));
-    }
-  };
-
-  const generateVariants = async () => {
-    if (!currentInstruction.trim()) return;
-    
-    setIsGenerating(true);
-    try {
-      // Genera una risposta per ogni modello disponibile
-      const newResponses = await Promise.all(
-        availableModels.map(async model => {
-          const response = await generateResponse(
-            currentInstruction, 
-            model.id,
-            temperature,
-            seed ? parseInt(seed) : null
-          );
-          return {
-            content: response,
-            isEditing: false,
-            rating: 0,
-            model: model.name
-          };
-        })
-      );
-      
-      setVariants([...variants, ...newResponses]);
-    } catch (error) {
-      console.error('Errore nella generazione:', error);
-      // Qui puoi aggiungere una gestione degli errori più sofisticata
-    } finally {
-      setIsGenerating(false);
     }
   };
 
@@ -119,23 +137,25 @@ const TrainingApp = () => {
         ...conversations,
         {
           instruction: currentInstruction,
+          systemPrompt: systemPrompt,
           variants: variants.map(v => ({
             content: v.content,
             rating: v.rating,
-            model: v.model
+            parameters: v.parameters
           })),
           bestResponse: bestVariant.content,
           timestamp: new Date().toISOString()
         }
       ]);
       setCurrentInstruction('');
-      setVariants([{ content: '', isEditing: false, rating: 0, model: '' }]);
+      setVariants([{ content: '', isEditing: false, rating: 0, parameters: {} }]);
     }
   };
 
   const handleExport = () => {
     const exportData = conversations.map(conv => ({
       instruction: conv.instruction,
+      systemPrompt: conv.systemPrompt,
       response: conv.bestResponse
     }));
     
@@ -155,10 +175,20 @@ const TrainingApp = () => {
     <div className="max-w-4xl mx-auto p-4">
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Training Data Collector con Generazione Automatica</CardTitle>
+          <CardTitle>Training Data Collector</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">System Prompt:</label>
+              <textarea 
+                className="w-full p-2 border rounded-md min-h-[100px]"
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                placeholder="Inserisci il system prompt qui..."
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-1">Istruzione/Domanda:</label>
               <textarea 
@@ -169,39 +199,14 @@ const TrainingApp = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Temperatura (0-2):</label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded-md"
-                  value={temperature}
-                  onChange={(e) => setTemperature(Math.max(0, Math.min(2, parseFloat(e.target.value))))}
-                  min="0"
-                  max="2"
-                  step="0.1"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Seed (opzionale):</label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded-md"
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                  placeholder="Lascia vuoto per random"
-                />
-              </div>
-            </div>
-
             <div className="flex justify-between items-center">
               <Button 
-                onClick={generateVariants} 
+                onClick={() => generateVariants(3)} 
                 disabled={isGenerating || !currentInstruction.trim()}
                 variant="outline"
               >
                 <Wand2 className="h-4 w-4 mr-2" />
-                {isGenerating ? 'Generazione...' : 'Genera Varianti'}
+                {isGenerating ? 'Generazione...' : 'Genera 3 Varianti'}
               </Button>
               <Button onClick={addVariant} size="sm">
                 <Plus className="h-4 w-4 mr-1" /> Aggiungi Manualmente
@@ -212,9 +217,9 @@ const TrainingApp = () => {
               {variants.map((variant, index) => (
                 <Card key={index} className={`bg-gray-50 ${variant.isEditing ? 'border-blue-400' : ''}`}>
                   <CardContent className="pt-4">
-                    {variant.model && (
+                    {variant.parameters.temperature && (
                       <div className="text-sm text-gray-500 mb-2">
-                        Generato da: {variant.model}
+                        Parametri: temperatura={variant.parameters.temperature.toFixed(2)}, seed={variant.parameters.seed}
                       </div>
                     )}
                     
@@ -302,16 +307,20 @@ const TrainingApp = () => {
           <Card key={index} className="bg-gray-50">
             <CardContent className="pt-4">
               <div className="mb-4">
-                <span className="font-medium">Istruzione:</span>
+                <div className="font-medium mb-2">System Prompt:</div>
+                <p className="mt-1 whitespace-pre-wrap text-gray-600">{conv.systemPrompt}</p>
+              </div>
+              <div className="mb-4">
+                <div className="font-medium">Istruzione:</div>
                 <p className="mt-1 whitespace-pre-wrap">{conv.instruction}</p>
               </div>
               <div>
                 <span className="font-medium">Varianti:</span>
                 {conv.variants.map((variant, vIndex) => (
                   <div key={vIndex} className="mt-2 p-2 border rounded-md bg-white">
-                    {variant.model && (
+                    {variant.parameters.temperature && (
                       <div className="text-sm text-gray-500 mb-1">
-                        Modello: {variant.model}
+                        Parametri: temperatura={variant.parameters.temperature.toFixed(2)}, seed={variant.parameters.seed}
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{variant.content}</p>
